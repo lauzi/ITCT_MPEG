@@ -213,3 +213,14 @@ pip-log.txt
 
 #Mr Developer
 .mr.developer.cfg
+
+*.M1V
+*.exe
+*.doc
+ref\*
+
+*.hi
+*.o
+
+out.txt
+*.ppt
