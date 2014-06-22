@@ -20,7 +20,7 @@ class ReadOnlyFile {
     uint32 peep_bits(int n);
     void goto_next_byte() { _j = 0; }
 
-    int read_Huffman(Huffman *h);
+    uint32 read_Huffman(Huffman *h);
 
   private:
     FILE *_file;

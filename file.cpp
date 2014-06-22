@@ -65,12 +65,12 @@ void ReadOnlyFile::_read_bfr() {
     if (not _has_read)
         fread(_bfr + _i, 1, _bfr_siz / 2, _file);
 
-    _has_read = not _peeping;
+    _has_read = _peeping;
 
     _j = 8;
 }
 
-int ReadOnlyFile::read_Huffman(Huffman *h) {
+uint32 ReadOnlyFile::read_Huffman(Huffman *h) {
     for (int tbl = 0; ; ) {
         int res = h->tbls[tbl][peep_bits(8)];
         if (res < 0) {
