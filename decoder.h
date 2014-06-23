@@ -40,8 +40,7 @@ class Decoder {
     bool picture();
     bool slice();
     void macroblock();
-    void block(int i, bool macroblock_intra);
-    void motion_vectors(bool macroblock_motion_forward, bool macroblock_motion_backward);
+    void block(int i);
 
   private:
     int _frame_count;
@@ -70,6 +69,16 @@ class Decoder {
     void _process_intra_block(int *dct_dc_past_p, bool first);
     void _process_non_intra_block();
 
+    void _gg_skipped_macroblocks(int n);
+    void _process_macroblock(int cbp);
+
+    int32 recon_right_for_prev, recon_down_for_prev;
+    int32 recon_right_back_prev, recon_down_back_prev;
+    int32 _gg_motion_vectors(int f, int motion_code, int motion_r, bool full_pel_vector,
+                             int &recon_prev);
+
+    int _read_motion_vector(int f, int r_size, int full_pel_vector, int &recon);
+
     void _idct();
     void _clip_range();
 
@@ -95,6 +104,15 @@ class Decoder {
 
     // macroblock
     int32 macroblock_address;
+    bool macroblock_quant;
+    bool macroblock_motion_forward;
+    bool macroblock_motion_backward;
+    bool macroblock_pattern;
+    bool macroblock_intra;
+
+    int32 recon_right_for, recon_down_for;
+    int32 recon_right_back, recon_down_back;
+
     uint32 mb_row, mb_column;
 
     // block

@@ -26,12 +26,10 @@ void Decoder::sequence_header() {
 
     debug("SEQUENCE HEADER:\n");
 
-    // horizontal_size
     uint32 hs = _read_bits(12);
     debug("  HS = %d\n", hs);
     horizontal_size = hs;
 
-    // vertical_size
     uint32 vs = _read_bits(12);
     debug("  VS = %d\n", vs);
     vertical_size = vs;
@@ -39,28 +37,8 @@ void Decoder::sequence_header() {
     mb_width = (horizontal_size + 15) / 16;
     mb_height = (vertical_size + 15) / 16;
 
-    // pel_aspect_ratio
-    uint32 par = _read_bits(4);
-    debug("  PAR = %d\n", par);
-
-    // picture_rate
-    uint32 pr = _read_bits(4);
-    debug("  PR = %d\n", pr);
-
-    // bit_rate
-    uint32 br = _read_bits(18);
-    debug("  BR = %d\n", br);
-
-    uint32 mb = _read_bits(1);
-    assert (mb); // marker_bit
-
-    // vbv_buffer_size
-    uint32 vbs = _read_bits(10);
-    debug("  VBS = %d\n", vbs);
-
-    // constrained_parameters_flag, useless
-    uint32 cpf = _read_bits(1);
-    debug("  CPF = %d\n", cpf);
+    _read_bits(4+4+18+1);
+    _read_bits(10+1);
 
     uint32 liqm = _read_bits(1);
     debug("  LIQM = %d\n", liqm);
@@ -96,17 +74,7 @@ bool Decoder::group_of_pictures() {
 
     debug("  GROUP OF PICTURES:\n");
 
-    // time_code, will not use
-    uint32 tc = _read_bits(25);
-    debug("    TC = %d\n", tc);
-
-    // closed_gop, will not use
-    uint32 cg = _read_bits(1);
-    debug("    CG = %d\n", cg);
-
-    // broken_link, will not use
-    uint32 bl = _read_bits(1);
-    debug("    BL = %d\n", bl);
+    _read_bits(27);
 
     _goto_next_byte();
 
@@ -156,9 +124,7 @@ bool Decoder::picture() {
     const static char pcts[] = "0IPBD";
     debug("      PCT = %d, %c frame\n", picture_coding_type, pcts[picture_coding_type]);
 
-    // vbv_delay, will not use
-    uint32 vbd = _read_bits(16);
-    debug("      VBD = %d\n", vbd);
+    _read_bits(16);
 
     if (picture_coding_type == P or picture_coding_type == B) {
         uint32 fpfv = _read_bits(1);
@@ -188,31 +154,22 @@ bool Decoder::picture() {
 
     extension_and_user_data();
 
-    // begin shit
-
     if (picture_coding_type == I or picture_coding_type == P) {
         std::swap(_backward_frame, _forward_frame);
         _output(_forward_frame);
     }
 
-    if (_current_frame == NULL) {
+    if (_current_frame == NULL)
         _current_frame = new Frame(vertical_size, horizontal_size);
-    }
-
-    // end shit
 
     macroblock_address = 0;
     while (slice());
-
-    // begin more shit
 
     if (picture_coding_type == I or picture_coding_type == P) {
         std::swap(_backward_frame, _forward_frame);
         std::swap(_current_frame, _backward_frame);
     } else if (picture_coding_type == B)
         _output(_current_frame);
-
-    // end more shit
 
     return true;
 }
@@ -221,11 +178,12 @@ bool Decoder::slice() {
     uint32 next_bits_32 = _peep_bits(32);
     if (not (0x00000101 <= next_bits_32 and next_bits_32 <= 0x000001AF))
         return false;
-    _read_bits(32);
+    _read_bits(24);
+
+    macroblock_address = (_read_bits(8) - 1) * mb_width - 1;
 
     debug("      SLICE:\n");
 
-    // quantizer_scale
     uint32 qs = _read_bits(5);
     debug("        QS = %d\n", qs);
     quantizer_scale = qs;
@@ -233,6 +191,10 @@ bool Decoder::slice() {
     while (_read_bits(1)) _read_bits(8);
 
     past_intra_address = -2;
+    recon_right_for = recon_right_for_prev = 0;
+    recon_down_for = recon_down_for_prev = 0;
+    recon_right_back = recon_right_back_prev = 0;
+    recon_down_back = recon_down_back_prev = 0;
 
     do macroblock();
     while (_peep_bits(23) != 0);
@@ -246,29 +208,32 @@ void Decoder::macroblock() {
     while (_peep_bits(11) == (0x0001 << 3 | 7)) // useless
         _read_bits(11);
 
+    int mbai = 0;
+
     while (_peep_bits(11) == (0x0001 << 3 | 0)) {
         _read_bits(11);
-        macroblock_address += 33;
+        mbai += 33;
         debug("        MBE\n");
     }
 
-    int mbai = 0;
     mbai += _read_Huffman(_MB_addr_incr_table);
     debug("        MBAI = %d\n", mbai);
 
-    macroblock_address += mbai;
-    mb_row = (macroblock_address - 1) / mb_width;
-    mb_column = (macroblock_address - 1) % mb_width;
+    _gg_skipped_macroblocks(mbai-1);
 
-    debug("        Macroblock #%d:\n", macroblock_address);
+    macroblock_address += mbai;
+    mb_row = macroblock_address / mb_width;
+    mb_column = macroblock_address % mb_width;
+
+    debug("        Macroblock #%d:\n", macroblock_address + 1);
 
     int mbt = _read_Huffman(_MB_type_tables[picture_coding_type]);
     debug("          MBT = %d\n", mbt);
-    bool macroblock_quant = mbt >> 4;
-    bool macroblock_motion_forward = (mbt >> 3) & 1;
-    bool macroblock_motion_backward = (mbt >> 2) & 1;
-    bool macroblock_pattern = (mbt >> 1) & 1;
-    bool macroblock_intra = mbt & 1;
+    macroblock_quant = mbt >> 4;
+    macroblock_motion_forward = (mbt >> 3) & 1;
+    macroblock_motion_backward = (mbt >> 2) & 1;
+    macroblock_pattern = (mbt >> 1) & 1;
+    macroblock_intra = mbt & 1;
 
     if (macroblock_quant) {
         int qs = _read_bits(5);
@@ -276,25 +241,37 @@ void Decoder::macroblock() {
         quantizer_scale = qs;
     }
 
-    // TODO: read the fucking motion vector
-    motion_vectors(macroblock_motion_forward, macroblock_motion_backward);
+    if (macroblock_motion_forward) {
+        recon_right_for = _read_motion_vector(forward_f, forward_r_size,
+                                                  full_pel_forward_vector, recon_right_for_prev);
+
+        recon_down_for = _read_motion_vector(forward_f, forward_r_size,
+                                                 full_pel_forward_vector, recon_down_for_prev);
+
+        debug("            ForMV = (%d, %d)\n", recon_right_for, recon_down_for);
+    } else {
+        recon_right_for = recon_right_for_prev = 0;
+        recon_down_for = recon_down_for_prev = 0;
+    }
+
+    if (macroblock_motion_backward) {
+        recon_right_back = _read_motion_vector(backward_f, backward_r_size,
+                                                   full_pel_backward_vector, recon_right_back_prev);
+
+        recon_down_back = _read_motion_vector(backward_f, backward_r_size,
+                                                  full_pel_backward_vector, recon_down_back_prev);
+
+        debug("            BackMV = (%d, %d)\n", recon_right_back, recon_down_back);
+    } else {
+        recon_right_back = recon_right_back_prev = 0;
+        recon_down_back = recon_down_back_prev = 0;
+    }
 
     int cbp = macroblock_intra ? 63 : 0;
     if (macroblock_pattern)
         cbp = _read_Huffman(_cbp_table);
 
-    for (int i = 0; i < 6; ++i) {
-        if (cbp & (1 << (5 - i))) {
-            block(i, macroblock_intra);
-
-            if (i < 4)
-                _current_frame->set_macroblock_y(dct_recon, mb_row, mb_column, i);
-            else if (i == 4)
-                _current_frame->set_macroblock_cb(dct_recon, mb_row, mb_column);
-            else
-                _current_frame->set_macroblock_cr(dct_recon, mb_row, mb_column);
-        }
-    }
+    _process_macroblock(cbp);
 
     if (macroblock_intra)
         past_intra_address = macroblock_address;
@@ -341,10 +318,8 @@ bool Decoder::_read_coeff(int *run, int *lvl, bool first = false) {
 inline
 int sign(int n) { return n > 1 ? 1 : -1; }
 
-void Decoder::block(int i, bool macroblock_intra) {
+void Decoder::block(int i) {
     debug("          BLOCK %d:\n", i);
-
-    memset(dct_recon, 0, 64 * sizeof(int));
 
     int idx = 0;
     bool coeff_first = false;
@@ -373,25 +348,6 @@ void Decoder::block(int i, bool macroblock_intra) {
         idx += run + 1;
         dct_recon[i_scan_y[idx]][i_scan_x[idx]] = lvl;
     }
-    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
-        printf("zz = %d\n", dct_recon[0][0]);
-        printf("qs = %d\n", quantizer_scale);
-        for (int i = 0; i < 8; ++i) {
-            for (int j = 0; j < 8; ++j) {
-                printf("%d\t", intra_quant[i][j]);
-            }
-            printf("\n");
-        }
-        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
-        printf("BEFORE ANYTHING\n");
-        for (int i = 0; i < 8; ++i) {
-            for (int j = 0; j < 8; ++j) {
-                printf("%d\t", dct_recon[i][j]);
-            }
-            printf("\n");
-        }
-        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
-    }
 
     if (macroblock_intra) {
         int *dct_dc_past_p = &dct_dc_y_past;
@@ -406,31 +362,7 @@ void Decoder::block(int i, bool macroblock_intra) {
         _process_non_intra_block();
     }
 
-    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
-        for (int i = 0; i < 8; ++i) {
-            for (int j = 0; j < 8; ++j) {
-                printf("%d\t", dct_recon[i][j]);
-            }
-            printf("\n");
-        }
-        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
-    }
-
     _idct();
-
-    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
-        for (int i = 0; i < 8; ++i) {
-            for (int j = 0; j < 8; ++j) {
-                printf("%d\t", dct_recon[i][j]);
-            }
-            printf("\n");
-        }
-        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
-    }
-
-    _clip_range();
-
-
 }
 
 void Decoder::_process_intra_block(int *dct_dc_past_p, bool first) {
@@ -464,7 +396,7 @@ void Decoder::_process_non_intra_block() {
 
             int sgn = sign(dct_val);
 
-            dct_val = ((dct_val << 1) + sgn) * quantizer_scale * non_intra_quant[m][n] >> 4;
+            dct_val = (((dct_val << 1) + sgn) * quantizer_scale * non_intra_quant[m][n]) >> 4;
             if ((dct_val & 1) == 0) dct_val -= sgn;
             if (dct_val > 2047) dct_val = 2047;
             if (dct_val < -2048) dct_val = -2048;
@@ -472,42 +404,35 @@ void Decoder::_process_non_intra_block() {
     }
 }
 
-void Decoder::motion_vectors(bool macroblock_motion_forward, bool macroblock_motion_backward) {
-    if (macroblock_motion_forward) {
-        uint32 mhfc = _read_Huffman(_motion_vector_table);
-        debug("            MHFC = %d\n", mhfc);
+int Decoder::_read_motion_vector(int f, int r_size, int full_pel_vector, int &recon) {
+    int32 mc = _read_Huffman(_motion_vector_table);
+    if (mc != 0) mc *= _read_bits(1) ? -1 : 1;
 
-        if (forward_f != 1 and mhfc != 0) {
-            uint32 mhfr = _read_bits(forward_r_size);
-            debug("            MHFR = %d\n", mhfr);
-        }
+    int32 mr = (f == 1 or mc == 0) ? 0 : _read_bits(r_size);
 
-        uint32 mvfc = _read_Huffman(_motion_vector_table);
-        debug("            MHVC = %d\n", mhfc);
+    return _gg_motion_vectors(f, mc, mr, full_pel_vector, recon);
+}
 
-        if (forward_f != 1 and mvfc != 0) {
-            uint32 mvfr = _read_bits(forward_r_size);
-            debug("            MVFR = %d\n", mvfr);
-        }
-    }
+int Decoder::_gg_motion_vectors(int f, int motion_code, int motion_r, bool full_pel_vector,
+                                 int &recon_prev) {
+    int complement_r = (f == 1 or motion_code == 0) ? 0 : f - 1 - motion_r;
 
-    if (macroblock_motion_backward) {
-        uint32 mhbc = _read_Huffman(_motion_vector_table);
-        debug("            MHBC = %d\n", mhbc);
+    int little = motion_code * f, big;
+    if (little == 0)
+        big = 0;
+    else if (little > 0)
+        little -= complement_r, big = little - (f << 5);
+    else
+        little += complement_r, big = little + (f << 5);
 
-        if (backward_f != 1 and mhbc != 0) {
-            uint32 mhbr = _read_bits(backward_r_size);
-            debug("            MHBR = %d\n", mhbr);
-        }
+    int max = (f<<4), min = -max;
+    int new_vector = recon_prev + little;
 
-        uint32 mvbc = _read_Huffman(_motion_vector_table);
-        debug("            MHBC = %d\n", mhbc);
+    int recon = recon_prev + (new_vector < max and new_vector >= min ? little : big);
+    recon_prev = recon;
+    if (full_pel_vector) recon <<= 1;
 
-        if (backward_f != 1 and mvbc != 0) {
-            uint32 mvbr = _read_bits(forward_r_size);
-            debug("            MVBR = %d\n", mvbr);
-        }
-    }
+    return recon;
 }
 
 void Decoder::_init_fucking_Huffman_tables_fuck() {
@@ -612,15 +537,14 @@ void Decoder::_init_fucking_Huffman_tables_fuck() {
     _motion_vector_table = new Huffman(true);
     {
         int ls[] = {1,
-                    3, 3,
-                    4, 4,
-                    5, 5,
-                    7, 7,
-                    8, 8, 8, 8, 8, 8,
-                    10, 10, 10, 10, 10, 10,
-                    11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11};
-        int vs[] = {0, -1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6, -7, 7, -8, 8, -9, 9, -10, 10, -11,
-                    11, -12, 12, -13, 13, -14, 14, -15, 15, -16, 16};
+                    2,
+                    3,
+                    4,
+                    6,
+                    7, 7, 7,
+                    9, 9, 9,
+                    10, 10, 10, 10, 10, 10};
+        int vs[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
         for (unsigned i = 0; i < sizeof(ls)/sizeof(int); ++i)
             _motion_vector_table->insert(ls[i], vs[i]);
     }
@@ -725,7 +649,7 @@ int Decoder::debug(const char *format, ...) {
     va_list arg;
     int length = 0;
 
-    if (_frame_count == 0) {
+    if (_frame_count == 18 or _frame_count == 0) {
         va_start(arg, format);
         length = vprintf(format, arg);
         va_end(arg);
@@ -737,7 +661,90 @@ int Decoder::debug(const char *format, ...) {
 void Decoder::_output(Frame *frame) {
     if (frame == NULL) return ;
 
+    if (true) {
+        for (int i = 0; i < mb_height; ++i) {
+            for (int j = 0; j < mb_width; ++j) {
+                for (int k = 0; k < 6; ++k) {
+                    memset(dct_recon, 0, 64 * 4);
+                    frame->add_macroblock(dct_recon, i, j, k, 0, 0, false);
+                    frame->set_macroblock(dct_recon, i, j, k);
+                }
+            }
+        }
+    }
+
     char file_name[120];
     sprintf(file_name, "output/frame_%03d.bmp", ++_output_frame);
     frame->output_to_file(std::string(file_name));
+}
+
+void Decoder::_gg_skipped_macroblocks(int n) {
+    if (n >= 1 and _frame_count == 16)
+        fprintf(stderr, "skipped %d blocks\n", n);
+
+    for (int i = 1; i <= n; ++i) {
+        int block_num = macroblock_address + i;
+
+        mb_row = block_num / mb_width;
+        mb_column = block_num % mb_width;
+
+        macroblock_quant = false;
+        macroblock_pattern = false;
+        macroblock_intra = false;
+
+        if (picture_coding_type == P) {
+            // reconstructed motion vector = 0
+
+            macroblock_motion_forward = true;
+            macroblock_motion_backward = false;
+
+            recon_right_for = recon_right_for_prev = 0;
+            recon_down_for = recon_down_for_prev = 0;
+
+            _process_macroblock(0);
+
+        } else if (picture_coding_type == B) {
+            // same macroblock type as previous
+            // diff motion vectors = 0
+            // dct = all 0
+
+            _process_macroblock(0);
+        }
+    }
+}
+
+void Decoder::_process_macroblock(int cbp) {
+    bool bidir = macroblock_motion_forward and macroblock_motion_backward;
+
+    for (int i = 0; i < 6; ++i) {
+        memset(dct_recon, 0, 64 * sizeof(int32));
+
+        if (cbp & (1 << (5 - i)))
+            block(i);
+
+        // if (picture_coding_type == P) memset(dct_recon, 0, 64*4);
+
+        if (macroblock_intra) {
+        } else if (picture_coding_type == P) {
+            _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
+                                           recon_right_for, recon_down_for, false);
+        } else {
+            _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
+                                           recon_right_back, recon_down_back, true);
+            _backward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
+                                            recon_right_back, recon_down_back, true);
+        }
+
+        _clip_range();
+
+        if (false and (recon_right_for & 1) and (recon_down_for & 1)) {
+            for (int k = 0; k < 8; ++k) {
+                for (int j = 0; j < 8; ++j) {
+                    dct_recon[k][j] = i < 4 ? 255 : 0;
+                }
+            }
+        }
+
+        _current_frame->set_macroblock(dct_recon, mb_row, mb_column, i);
+    }
 }

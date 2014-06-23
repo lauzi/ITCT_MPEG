@@ -5,7 +5,7 @@
 
 #include "bmpwriter.h"
 
-void Frame::set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
+void Frame::_set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
     int base_y = my << 4, base_x = mx << 4;
     if (i & 1) base_x += 8;
     if (i & 2) base_y += 8;
@@ -18,25 +18,64 @@ void Frame::set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
     }
 }
 
-void Frame::set_macroblock_cb(bv_t vals[8][8], int my, int mx) {
+void Frame::_set_macroblock_c(bv_t vals[8][8], int my, int mx, std::vector<uint8> &v) {
     int base_y = my << 3, base_x = mx << 3;
 
     for (int i = 0; i < 8; ++i) {
         int idx = (base_y + i) * _lw + base_x;
         for (int j = 0; j < 8; ++j, ++idx)
-            _cb[idx] = vals[i][j];
+            v[idx] = vals[i][j];
         assert (idx <= _mbh * _mbw * 8 * 8);
     }
 }
 
-void Frame::set_macroblock_cr(bv_t vals[8][8], int my, int mx) {
-    int base_y = my << 3, base_x = mx << 3;
+void Frame::_add_macroblock_y(bv_t vals[8][8], int my, int mx, int ii,
+                             int recon_right, int recon_down, bool bblock) {
+    int right = recon_right >> 1, right_half = recon_right & 1;
+    int down = recon_down >> 1, down_half = recon_down & 1;
+
+    const int lw = _lw * 2;
+    int y = my << 4, x = mx << 4;
+    if (ii & 1) x |= 8;
+    if (ii & 2) y |= 8;
+    y += down, x += right;
 
     for (int i = 0; i < 8; ++i) {
-        int idx = (base_y + i) * _lw + base_x;
-        for (int j = 0; j < 8; ++j, ++idx)
-            _cr[idx] = vals[i][j];
-        assert (idx <= _mbh * _mbw * 8 * 8);
+        int idx = (y + i) * lw + x;
+        for (int j = 0; j < 8; ++j, ++idx) {
+            int sum = _y[idx], lg_div = bblock ? 1 : 0;
+            if (down_half)
+                sum += _y[idx + lw], lg_div += 1;
+            if (right_half)
+                sum += _y[idx + 1], lg_div += 1;
+            if (right_half and down_half)
+                sum += _y[idx + lw + 1];
+            vals[i][j] += sum >> lg_div;
+        }
+    }
+}
+
+void Frame::_add_macroblock_c(bv_t vals[8][8], int my, int mx, int rr, int rd, bool bblock,
+                              std::vector<uint8> &v) {
+    rr >>= 1, rd >>= 1;
+    int right = rr >> 1, right_half = rr & 1;
+    int down = rd >> 1, down_half = rd & 1;
+
+    int y = my<<3, x = mx<<3;
+    y += down, x += right;
+
+    for (int i = 0; i < 8; ++i) {
+        int idx = (y + i) * _lw + x;
+        for (int j = 0; j < 8; ++j, ++idx) {
+            int sum = v[idx], lg_div = bblock ? 1 : 0;
+            if (down_half)
+                sum += v[idx + _lw], lg_div += 1;
+            if (right_half)
+                sum += v[idx + 1], lg_div += 1;
+            if (right_half and down_half)
+                sum += v[idx + _lw + 1];
+            vals[i][j] += sum >> lg_div;
+        }
     }
 }
 
