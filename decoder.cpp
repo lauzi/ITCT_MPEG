@@ -110,8 +110,6 @@ bool Decoder::picture() {
 
     _frame_count += 1;
 
-    //fprintf(stderr, "Frame %d\n", _frame_count);
-
     debug("    PICTURE:\n");
 
     uint32 tr = _read_bits(10);
@@ -166,7 +164,6 @@ bool Decoder::picture() {
     while (slice());
 
     if (picture_coding_type == I or picture_coding_type == P) {
-        std::swap(_backward_frame, _forward_frame);
         std::swap(_current_frame, _backward_frame);
     } else if (picture_coding_type == B)
         _output(_current_frame);
@@ -679,9 +676,6 @@ void Decoder::_output(Frame *frame) {
 }
 
 void Decoder::_gg_skipped_macroblocks(int n) {
-    if (n >= 1 and _frame_count == 16)
-        fprintf(stderr, "skipped %d blocks\n", n);
-
     for (int i = 1; i <= n; ++i) {
         int block_num = macroblock_address + i;
 
@@ -693,57 +687,36 @@ void Decoder::_gg_skipped_macroblocks(int n) {
         macroblock_intra = false;
 
         if (picture_coding_type == P) {
-            // reconstructed motion vector = 0
-
-            macroblock_motion_forward = true;
-            macroblock_motion_backward = false;
-
             recon_right_for = recon_right_for_prev = 0;
             recon_down_for = recon_down_for_prev = 0;
 
             _process_macroblock(0);
 
         } else if (picture_coding_type == B) {
-            // same macroblock type as previous
-            // diff motion vectors = 0
-            // dct = all 0
-
             _process_macroblock(0);
         }
     }
 }
 
 void Decoder::_process_macroblock(int cbp) {
-    bool bidir = macroblock_motion_forward and macroblock_motion_backward;
-
     for (int i = 0; i < 6; ++i) {
         memset(dct_recon, 0, 64 * sizeof(int32));
 
-        if (cbp & (1 << (5 - i)))
-            block(i);
-
-        // if (picture_coding_type == P) memset(dct_recon, 0, 64*4);
+        if (cbp & (1 << (5 - i))) block(i);
 
         if (macroblock_intra) {
+            // pass
         } else if (picture_coding_type == P) {
             _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
                                            recon_right_for, recon_down_for, false);
-        } else {
+        } else if (picture_coding_type == B) {
             _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
-                                           recon_right_back, recon_down_back, true);
+                                           recon_right_for, recon_down_for, true);
             _backward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
                                             recon_right_back, recon_down_back, true);
         }
 
         _clip_range();
-
-        if (false and (recon_right_for & 1) and (recon_down_for & 1)) {
-            for (int k = 0; k < 8; ++k) {
-                for (int j = 0; j < 8; ++j) {
-                    dct_recon[k][j] = i < 4 ? 255 : 0;
-                }
-            }
-        }
 
         _current_frame->set_macroblock(dct_recon, mb_row, mb_column, i);
     }
