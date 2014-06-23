@@ -16,7 +16,7 @@ typedef int int32;
 
 class Decoder {
   public:
-    Decoder (std::string file_name): _frame_count(0), _file(file_name) {
+    Decoder (std::string file_name): _frame_count(0), _file(file_name), _output_frame(0) {
         _init_fucking_Huffman_tables_fuck();
         _init_scan();
         _forward_frame = _current_frame = _backward_frame = NULL;
@@ -73,11 +73,14 @@ class Decoder {
     void _idct();
     void _clip_range();
 
+    int _output_frame;
+    void _output(Frame *frame);
+
     // sequence
     uint32 horizontal_size, vertical_size;
     uint32 mb_width, mb_height;
-    uint8 intra_quant[8][8];
-    uint8 non_intra_quant[8][8];
+    int32 intra_quant[8][8];
+    int32 non_intra_quant[8][8];
 
     // picture layer
     uint32 picture_coding_type;
@@ -86,7 +89,7 @@ class Decoder {
     uint32 full_pel_backward_vector, backward_r_size, backward_f;
 
     // quantizer_scale?
-    uint32 quantizer_scale;
+    int32 quantizer_scale;
     int32 past_intra_address;
     int32 dct_dc_y_past, dct_dc_cb_past, dct_dc_cr_past;
 

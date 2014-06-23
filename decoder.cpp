@@ -85,6 +85,8 @@ void Decoder::sequence_header() {
     extension_and_user_data();
 
     while (group_of_pictures());
+
+    _output(_backward_frame);
 }
 
 bool Decoder::group_of_pictures() {
@@ -140,7 +142,7 @@ bool Decoder::picture() {
 
     _frame_count += 1;
 
-    fprintf(stderr, "Frame %d\n", _frame_count);
+    //fprintf(stderr, "Frame %d\n", _frame_count);
 
     debug("    PICTURE:\n");
 
@@ -190,7 +192,7 @@ bool Decoder::picture() {
 
     if (picture_coding_type == I or picture_coding_type == P) {
         std::swap(_backward_frame, _forward_frame);
-        // if (_forward_frame != NULL) _forward_frame->output_to_file();
+        _output(_forward_frame);
     }
 
     if (_current_frame == NULL) {
@@ -208,7 +210,7 @@ bool Decoder::picture() {
         std::swap(_backward_frame, _forward_frame);
         std::swap(_current_frame, _backward_frame);
     } else if (picture_coding_type == B)
-        _current_frame->output_to_file("some_shitty_file_name.bmp");
+        _output(_current_frame);
 
     // end more shit
 
@@ -219,24 +221,16 @@ bool Decoder::slice() {
     uint32 next_bits_32 = _peep_bits(32);
     if (not (0x00000101 <= next_bits_32 and next_bits_32 <= 0x000001AF))
         return false;
-    _read_bits(24);
+    _read_bits(32);
 
     debug("      SLICE:\n");
-
-    // slice_vertical_position
-    uint32 svp = _read_bits(8);
-    debug("        SVP = %d\n", svp);
 
     // quantizer_scale
     uint32 qs = _read_bits(5);
     debug("        QS = %d\n", qs);
     quantizer_scale = qs;
 
-    while (_read_bits(1)) {
-        // useless
-        uint32 eis = _read_bits(8);
-        debug("        EIS = %d\n", eis);
-    }
+    while (_read_bits(1)) _read_bits(8);
 
     past_intra_address = -2;
 
@@ -246,14 +240,6 @@ bool Decoder::slice() {
     _goto_next_byte();
 
     return true;
-}
-
-inline
-int extend(int val, int len) {
-    static const int pows[] = {1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096,
-                               8192, 16384, 32768, 65536};
-
-    return val >= pows[len-1] ? val : val - pows[len] + 1;
 }
 
 void Decoder::macroblock() {
@@ -303,7 +289,7 @@ void Decoder::macroblock() {
 
             if (i < 4)
                 _current_frame->set_macroblock_y(dct_recon, mb_row, mb_column, i);
-            else if (i == 5)
+            else if (i == 4)
                 _current_frame->set_macroblock_cb(dct_recon, mb_row, mb_column);
             else
                 _current_frame->set_macroblock_cr(dct_recon, mb_row, mb_column);
@@ -353,7 +339,7 @@ bool Decoder::_read_coeff(int *run, int *lvl, bool first = false) {
 }
 
 inline
-int sign(int n) { return (n>>31) & 1; }
+int sign(int n) { return n > 1 ? 1 : -1; }
 
 void Decoder::block(int i, bool macroblock_intra) {
     debug("          BLOCK %d:\n", i);
@@ -368,15 +354,15 @@ void Decoder::block(int i, bool macroblock_intra) {
         debug("            DCT_DC_SIZE = %d\n", dct_dc_size);
 
         if (dct_dc_size > 0) {
-            debug("            DCT_DC_DIFF = %d\n", _peep_bits(dct_dc_size));
+            int dct_dc_diff = _read_bits(dct_dc_size);
 
-            int dct_dc_diff = extend(_read_bits(dct_dc_size), dct_dc_size);
+            debug("            DCT_DC_DIFF = %d\n", dct_dc_diff);
 
             if (dct_dc_diff & (1 << (dct_dc_size-1)))
                 dct_recon[0][0] = dct_dc_diff;
             else
                 dct_recon[0][0] = (-1 << dct_dc_size) | (dct_dc_diff+1);
-        }
+        } else dct_recon[0][0] = 0;
     } else { // read dct_coeff_first
         idx = -1, coeff_first = true;
     }
@@ -386,6 +372,25 @@ void Decoder::block(int i, bool macroblock_intra) {
 
         idx += run + 1;
         dct_recon[i_scan_y[idx]][i_scan_x[idx]] = lvl;
+    }
+    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
+        printf("zz = %d\n", dct_recon[0][0]);
+        printf("qs = %d\n", quantizer_scale);
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                printf("%d\t", intra_quant[i][j]);
+            }
+            printf("\n");
+        }
+        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
+        printf("BEFORE ANYTHING\n");
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                printf("%d\t", dct_recon[i][j]);
+            }
+            printf("\n");
+        }
+        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
     }
 
     if (macroblock_intra) {
@@ -400,27 +405,54 @@ void Decoder::block(int i, bool macroblock_intra) {
     } else {
         _process_non_intra_block();
     }
+
+    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                printf("%d\t", dct_recon[i][j]);
+            }
+            printf("\n");
+        }
+        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
+    }
+
     _idct();
+
+    if (_frame_count == 1 and macroblock_address == 1 and i == 0) {
+        for (int i = 0; i < 8; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                printf("%d\t", dct_recon[i][j]);
+            }
+            printf("\n");
+        }
+        printf("=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-\n");
+    }
+
     _clip_range();
+
+
 }
 
 void Decoder::_process_intra_block(int *dct_dc_past_p, bool first) {
+    int dc_val;
+
+    if (first and past_intra_address+1 < macroblock_address)
+        *dct_dc_past_p = 1024;
+    dc_val = *dct_dc_past_p + (dct_recon[0][0] << 3);
+    *dct_dc_past_p = dc_val;
+
     for (int m = 0; m < 8; ++m) {
         for (int n = 0; n < 8; ++n) {
             int &dct_val = dct_recon[m][n];
 
-            dct_val = dct_val * quantizer_scale * intra_quant[m][n] >> 3;
-            if ((dct_val & 1) == 0)
-                dct_val = dct_val - sign(dct_val);
+            dct_val = (dct_val * quantizer_scale * intra_quant[m][n]) >> 3;
+            if ((dct_val & 1) == 0) dct_val -= sign(dct_val);
             if (dct_val > 2047) dct_val = 2047;
             if (dct_val < -2048) dct_val = -2048;
         }
     }
 
-    if (first and past_intra_address+1 < macroblock_address)
-        *dct_dc_past_p = 1024;
-    dct_recon[0][0] = *dct_dc_past_p + (dct_recon[0][0] << 3);
-    *dct_dc_past_p = dct_recon[0][0];
+    dct_recon[0][0] = dc_val;
 }
 
 void Decoder::_process_non_intra_block() {
@@ -433,8 +465,7 @@ void Decoder::_process_non_intra_block() {
             int sgn = sign(dct_val);
 
             dct_val = ((dct_val << 1) + sgn) * quantizer_scale * non_intra_quant[m][n] >> 4;
-            if ((dct_val & 1) == 0)
-                dct_val = dct_val - sgn;
+            if ((dct_val & 1) == 0) dct_val -= sgn;
             if (dct_val > 2047) dct_val = 2047;
             if (dct_val < -2048) dct_val = -2048;
         }
@@ -596,7 +627,7 @@ void Decoder::_init_fucking_Huffman_tables_fuck() {
 }
 
 void Decoder::_init_intra_quant() {
-    static const uint8 vals[] =
+    static const int32 vals[] =
         {8,	16,	19,	22,	26,	27,	29,	34,
         16,	16,	22,	24,	27,	29,	34,	37,
         19,	22,	26,	27,	29,	34,	34,	38,
@@ -606,11 +637,13 @@ void Decoder::_init_intra_quant() {
         26,	27,	29,	34,	38,	46,	56,	69,
         27, 29, 35,	38,	46,	56,	69,	83};
 
-    memcpy(intra_quant, vals, 64);
+    memcpy(intra_quant, vals, 64 * sizeof(int));
 }
 
 void Decoder::_init_non_intra_quant() {
-    memset(non_intra_quant, 16, 64);
+    for (int i = 0; i < 8; ++i)
+        for (int j = 0; j < 8; ++j)
+            non_intra_quant[i][j] = 16;
 }
 
 void Decoder::_init_scan() {
@@ -692,11 +725,19 @@ int Decoder::debug(const char *format, ...) {
     va_list arg;
     int length = 0;
 
-    if (_frame_count == 41) {
+    if (_frame_count == 0) {
         va_start(arg, format);
         length = vprintf(format, arg);
         va_end(arg);
     }
 
     return length;
+}
+
+void Decoder::_output(Frame *frame) {
+    if (frame == NULL) return ;
+
+    char file_name[120];
+    sprintf(file_name, "output/frame_%03d.bmp", ++_output_frame);
+    frame->output_to_file(std::string(file_name));
 }

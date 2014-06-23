@@ -5,13 +5,12 @@
 typedef short int16;
 
 void BMPWriter::write_pxl(double y, double cb, double cr) {
-    y -= 16, cb -= 128, cr -= 128;
-
-    y *= 298.082 / 256;
+    y *= 298.082;
+    y /= 256, cb /= 256, cr /= 256;
     double rgb[] = {
-        y + 516.412 * cb / 256                      - 276.836,
-        y - 100.291 * cb / 256 - 208.120 * cr / 256 + 135.576,
-        y                      + 408.583 * cr / 256 - 222.921
+        y + 516.412 * cb                - 276.836,
+        y - 100.291 * cb - 208.120 * cr + 135.576,
+        y                + 408.583 * cr - 222.921
     };
 
     int idx = _x++ * 3;

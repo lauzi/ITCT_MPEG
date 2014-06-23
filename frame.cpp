@@ -11,7 +11,7 @@ void Frame::set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
     if (i & 2) base_y += 8;
 
     for (int i = 0; i < 8; ++i) {
-        int idx = (base_y + i) * _lw * 2 + base_x;
+        int idx = (base_y + i) * (_lw * 2) + base_x;
         for (int j = 0; j < 8; ++j, ++idx)
             _y[idx] = vals[i][j];
         assert (idx <= _mbh * _mbw * 16 * 16);
@@ -43,9 +43,10 @@ void Frame::set_macroblock_cr(bv_t vals[8][8], int my, int mx) {
 void Frame::output_to_file(std::string file_name) {
     BMPWriter writer(_h, _w, file_name.c_str());
 
-    for (int i = 0, idx = 0; i < _h; ++i) {
+    for (int i = 0; i < _h; ++i) {
+        int idx = i * (_lw * 2);
         for (int j = 0; j < _w; ++j, ++idx) {
-            int cidx = ((_lw * i) >> 2) + (j >> 1);
+            int cidx = (i >> 1) * _lw + (j >> 1);
             writer.write_pxl(_y[idx], _cb[cidx], _cr[cidx]);
         }
     }
