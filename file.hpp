@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-#include "huffman.h"
+#include "huffman.hpp"
 
 const int default_buffer_size = 20;
 

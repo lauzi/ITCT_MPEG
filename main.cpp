@@ -1,7 +1,7 @@
 #include <cstdio>
 #include <string>
 
-#include "decoder.h"
+#include "decoder.hpp"
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {

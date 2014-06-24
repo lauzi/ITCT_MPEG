@@ -4,9 +4,9 @@
 #include <string>
 #include <cstdarg>
 
-#include "file.h"
-#include "huffman.h"
-#include "frame.h"
+#include "file.hpp"
+#include "huffman.hpp"
+#include "frame.hpp"
 
 
 typedef unsigned char uint8;
@@ -19,7 +19,7 @@ class Decoder {
     Decoder (std::string file_name): _frame_count(0), _file(file_name), _output_frame(0) {
         _init_fucking_Huffman_tables_fuck();
         _init_scan();
-        _forward_frame = _current_frame = _backward_frame = NULL;
+        _forward_frame = _current_frame = _backward_frame = nullptr;
     }
     ~Decoder () {
         delete _MB_addr_incr_table;

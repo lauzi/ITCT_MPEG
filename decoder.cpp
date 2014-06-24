@@ -1,13 +1,15 @@
-#include "decoder.h"
+#include "decoder.hpp"
 
 #include <cstdio>
 #include <cmath>
 #include <cstring>
 #include <cassert>
 
-#include "huffman.h"
+#include "huffman.hpp"
 
 #define DEBUG
+
+const bool output_to_file = true;
 
 
 const double M_SQRT2 = sqrt(2);
@@ -120,7 +122,11 @@ bool Decoder::picture() {
     const static char pcts[] = "0IPBDabcdefghij";
     debug("      PCT = %d, %c frame\n", picture_coding_type, pcts[picture_coding_type]);
 
-    // TODO: skip D-frame
+    if (picture_coding_type != I and picture_coding_type != P and picture_coding_type != B) {
+        _read_bits(3);
+        while (_peep_bits(24) != 0x000001) _read_bits(8);
+        return true;
+    }
 
     _read_bits(16);
 
@@ -157,7 +163,7 @@ bool Decoder::picture() {
         _output(_forward_frame);
     }
 
-    if (_current_frame == NULL)
+    if (_current_frame == nullptr)
         _current_frame = new Frame(vertical_size, horizontal_size);
 
     macroblock_address = 0;
@@ -443,7 +449,7 @@ void Decoder::_init_fucking_Huffman_tables_fuck() {
             _MB_addr_incr_table->insert(ls[i], vs[i]);
     }
 
-    _MB_type_tables[0] = NULL;
+    _MB_type_tables[0] = nullptr;
     _MB_type_tables[1] = new Huffman(true);
     {
         int ls[] = {1, 2};
@@ -657,11 +663,13 @@ int Decoder::debug(const char *format, ...) {
 }
 
 void Decoder::_output(Frame *frame) {
-    if (frame == NULL) return ;
+    if (frame == nullptr) return ;
 
-    char file_name[120];
-    sprintf(file_name, "output/frame_%03d.bmp", ++_output_frame);
-    frame->output_to_file(std::string(file_name));
+    if (output_to_file) {
+        char file_name[120];
+        sprintf(file_name, "output/frame_%03d.bmp", ++_output_frame);
+        frame->output_to_file(std::string(file_name));
+    }
 }
 
 void Decoder::_gg_skipped_macroblocks(int n) {

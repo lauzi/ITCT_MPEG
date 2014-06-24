@@ -1,5 +1,5 @@
 #include <cstdio>
-#include "huffman.h"
+#include "huffman.hpp"
 
 void Huffman::insert(int len, uint16 val) {
     const int bitmask = _rev ? 255 : 0;
