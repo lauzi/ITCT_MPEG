@@ -116,11 +116,11 @@ bool Decoder::picture() {
     debug("      TR = %d\n",  tr);
     temporal_reference = tr;
 
-    uint32 pct = _read_bits(3);
-    assert (pct == I or pct == P or pct == B);
-    picture_coding_type = pct;
-    const static char pcts[] = "0IPBD";
+    picture_coding_type = _read_bits(3);
+    const static char pcts[] = "0IPBDabcdefghij";
     debug("      PCT = %d, %c frame\n", picture_coding_type, pcts[picture_coding_type]);
+
+    // TODO: skip D-frame
 
     _read_bits(16);
 
@@ -163,9 +163,9 @@ bool Decoder::picture() {
     macroblock_address = 0;
     while (slice());
 
-    if (picture_coding_type == I or picture_coding_type == P) {
+    if (picture_coding_type == I or picture_coding_type == P)
         std::swap(_current_frame, _backward_frame);
-    } else if (picture_coding_type == B)
+    else if (picture_coding_type == B)
         _output(_current_frame);
 
     return true;
@@ -643,6 +643,7 @@ void Decoder::_clip_range() {
 }
 
 int Decoder::debug(const char *format, ...) {
+    return 0;
     va_list arg;
     int length = 0;
 
@@ -657,18 +658,6 @@ int Decoder::debug(const char *format, ...) {
 
 void Decoder::_output(Frame *frame) {
     if (frame == NULL) return ;
-
-    if (true) {
-        for (int i = 0; i < mb_height; ++i) {
-            for (int j = 0; j < mb_width; ++j) {
-                for (int k = 0; k < 6; ++k) {
-                    memset(dct_recon, 0, 64 * 4);
-                    frame->add_macroblock(dct_recon, i, j, k, 0, 0, false);
-                    frame->set_macroblock(dct_recon, i, j, k);
-                }
-            }
-        }
-    }
 
     char file_name[120];
     sprintf(file_name, "output/frame_%03d.bmp", ++_output_frame);

@@ -1,9 +1,10 @@
 #include "frame.h"
 
+#include <cstdio>
+#include <cmath>
 #include <cassert>
 
-
-#include "bmpwriter.h"
+typedef short int16;
 
 void Frame::_set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
     int base_y = my << 4, base_x = mx << 4;
@@ -79,14 +80,71 @@ void Frame::_add_macroblock_c(bv_t vals[8][8], int my, int mx, int rr, int rd, b
     }
 }
 
-void Frame::output_to_file(std::string file_name) {
-    BMPWriter writer(_h, _w, file_name.c_str());
+void Frame::calc_bmp() {
+    if (not _changed) return ;
+    _changed = false;
 
+    int idx = 0;
     for (int i = 0; i < _h; ++i) {
-        int idx = i * (_lw * 2);
-        for (int j = 0; j < _w; ++j, ++idx) {
-            int cidx = (i >> 1) * _lw + (j >> 1);
-            writer.write_pxl(_y[idx], _cb[cidx], _cr[cidx]);
+        for (int j = 0; j < _w; ++j) {
+            const uint8 y = _y[i * _lw * 2 + j];
+            const uint8 cb = _cb[(i>>1) * _lw + (j>>1)];
+            const uint8 cr = _cr[(i>>1) * _lw + (j>>1)];
+            _write_pel(y, cb, cr, idx);
+            idx += 3;
         }
+        idx += 3 & (4 - (idx & 3));
     }
+}
+
+void Frame::_write_pel(double y, double cb, double cr, int idx) {
+    y *= 298.082;
+    y /= 256, cb /= 256, cr /= 256;
+    double rgb[] = {
+        y + 516.412 * cb                - 276.836,
+        y - 100.291 * cb - 208.120 * cr + 135.576,
+        y                + 408.583 * cr - 222.921
+    };
+
+    for (int i = 0; i < 3; ++i) {
+        rgb[i] = round(rgb[i]);
+        if (rgb[i] > 255) bmp[idx++] = 255;
+        else if (rgb[i] < 0) bmp[idx++] = 0;
+        else bmp[idx++] = rgb[i];
+    }
+}
+
+void Frame::output_to_file(std::string file_name) {
+    FILE *file = fopen(file_name.c_str(), "wb");
+    if (file == NULL) throw std::string("Frame::Could not open output file");
+
+    fwrite("BM", 1, 2, file);
+    int bfOffBits = 2 + 4 + 2 + 2 + 4 + 40;
+    int size = bfOffBits + bmp.size();
+    int tmp = 0;
+
+    fwrite(&size, 4, 1, file);
+    fwrite(&tmp, 4, 1, file);
+    fwrite(&bfOffBits, 4, 1, file);
+
+    tmp = 40;
+
+    fwrite(&tmp, 4, 1, file);
+    fwrite(&_w, 4, 1, file);
+    int neg_height = -_h;
+    fwrite(&neg_height, 4, 1, file);
+
+    int16 tmp16 = 1;
+    fwrite(&tmp16, 2, 1, file);
+    tmp16 = 24;
+    fwrite(&tmp16, 2, 1, file);
+
+    tmp = 0;
+    for (int i = 0; i < 6; ++i)
+        fwrite(&tmp, 4, 1, file);
+
+    calc_bmp();
+    fwrite(&bmp[0], 1, bmp.size(), file);
+
+    fclose(file);
 }

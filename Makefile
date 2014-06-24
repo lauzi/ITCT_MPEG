@@ -1,8 +1,8 @@
 GCC = g++
-FLAGS = -std=c++11 -Wall -Wextra -g
+FLAGS = -std=c++11 -Wall -Wextra -O2
 
-HFILES = file.h decoder.h huffman.h bmpwriter.h frame.h
-CPPFILES = file.cpp decoder.cpp huffman.cpp bmpwriter.cpp frame.cpp
+HFILES = file.h decoder.h huffman.h frame.h
+CPPFILES = file.cpp decoder.cpp huffman.cpp frame.cpp
 
 main.exe: main.cpp ${HFILES} ${CPPFILES}
 	${GCC} ${FLAGS} ${CPPFILES} main.cpp -o main.exe
