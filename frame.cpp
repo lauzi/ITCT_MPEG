@@ -32,8 +32,8 @@ void Frame::_set_macroblock_c(bv_t vals[8][8], int my, int mx, std::vector<uint8
 
 void Frame::_add_macroblock_y(bv_t vals[8][8], int my, int mx, int ii,
                              int recon_right, int recon_down, bool bblock) {
-    int right = recon_right >> 1, right_half = recon_right & 1;
-    int down = recon_down >> 1, down_half = recon_down & 1;
+    int right = recon_right >> 1, right_half = recon_right - right * 2;
+    int down = recon_down >> 1, down_half = recon_down - down * 2;
 
     const int lw = _lw * 2;
     int y = my << 4, x = mx << 4;

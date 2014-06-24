@@ -11,9 +11,8 @@
 
 #include "huffman.hpp"
 
-#define DEBUG
-
-const bool output_to_file = true;
+const bool output_to_file = false;
+const bool debug_msg = false;
 
 
 const double M_SQRT2 = sqrt(2);
@@ -329,7 +328,7 @@ void Decoder::macroblock() {
                                                  full_pel_forward_vector, recon_down_for_prev);
 
         debug("            ForMV = (%d, %d)\n", recon_right_for, recon_down_for);
-    } else {
+    } else if (macroblock_intra or picture_coding_type == P) {
         recon_right_for = recon_right_for_prev = 0;
         recon_down_for = recon_down_for_prev = 0;
     }
@@ -342,7 +341,7 @@ void Decoder::macroblock() {
                                                   full_pel_backward_vector, recon_down_back_prev);
 
         debug("            BackMV = (%d, %d)\n", recon_right_back, recon_down_back);
-    } else {
+    } else if (macroblock_intra) {
         recon_right_back = recon_right_back_prev = 0;
         recon_down_back = recon_down_back_prev = 0;
     }
@@ -726,11 +725,12 @@ void Decoder::_clip_range() {
 }
 
 int Decoder::debug(const char *format, ...) {
-    return 0;
+    if (not debug_msg) return 0;
+
     va_list arg;
     int length = 0;
 
-    if (_frame_count == 18 or _frame_count == 0) {
+    if (_frame_count == 27 or _frame_count == 0) {
         va_start(arg, format);
         length = vprintf(format, arg);
         va_end(arg);
@@ -787,10 +787,14 @@ void Decoder::_process_macroblock(int cbp) {
             _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
                                            recon_right_for, recon_down_for, false);
         } else if (picture_coding_type == B) {
-            _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
-                                           recon_right_for, recon_down_for, true);
-            _backward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
-                                            recon_right_back, recon_down_back, true);
+            bool birev = macroblock_motion_forward and macroblock_motion_backward;
+
+            if (macroblock_motion_forward)
+                _forward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
+                                               recon_right_for, recon_down_for, birev);
+            if (macroblock_motion_backward)
+                _backward_frame->add_macroblock(dct_recon, mb_row, mb_column, i,
+                                                recon_right_back, recon_down_back, birev);
         }
 
         _clip_range();
