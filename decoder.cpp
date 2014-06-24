@@ -5,6 +5,10 @@
 #include <cstring>
 #include <cassert>
 
+#include <GL/glew.h>
+#include <GL/freeglut.h>
+
+
 #include "huffman.hpp"
 
 #define DEBUG
@@ -20,6 +24,78 @@ enum PCT { I=1, P, B, D };
 
 void Decoder::decode() {
     sequence_header();
+
+    _show_ui();
+}
+
+Decoder *tthis;
+
+unsigned int glut_show_frame_idx;
+int glut_width, glut_height;
+
+void glut_draw_frame() {
+    glTexImage2D( GL_TEXTURE_2D
+                  , 0
+                  , GL_RGBA
+                  , glut_width
+                  , glut_height
+                  , 0
+                  , GL_BGR
+                  , GL_UNSIGNED_BYTE
+                  , &tthis->frames[glut_show_frame_idx][0] );
+
+    glBegin(GL_QUADS);
+
+    glTexCoord2f(1,0);glVertex2f( 1, 1);
+    glTexCoord2f(1,1);glVertex2f( 1,-1);
+    glTexCoord2f(0,1);glVertex2f(-1,-1);
+    glTexCoord2f(0,0);glVertex2f(-1, 1);
+    glEnd();
+
+    glutSwapBuffers();
+}
+
+void glut_advance(int) {
+    if (++glut_show_frame_idx >= tthis->frames.size())
+        glut_show_frame_idx = 0;
+
+    glutPostRedisplay();
+    glutTimerFunc(33, glut_advance, 0);
+}
+
+void Decoder::_show_ui() {
+    int tmp = 0;
+    glutInit(&tmp, nullptr);
+    glutInitDisplayMode(GLUT_DOUBLE|GLUT_RGB);
+    glutInitWindowSize(640, 480);
+    glutInitWindowPosition(100, 100);
+    glutCreateWindow("MPEG 1 Decoder");
+
+    GLenum res = glewInit();
+    if (res != GLEW_OK) {
+        std::string glew_error = (const char*)glewGetErrorString(res);
+        throw std::string("Decoder::_show_ui::glewInit error: ") + glew_error;
+    }
+
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glEnable(GL_TEXTURE_2D);
+
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    tthis = this;
+    glut_show_frame_idx = 0;
+    glut_height = vertical_size;
+    glut_width = horizontal_size;
+
+    glutDisplayFunc(glut_draw_frame);
+    glutTimerFunc(514, glut_advance, 0);
+
+    glutMainLoop();
 }
 
 void Decoder::sequence_header() {
@@ -158,10 +234,8 @@ bool Decoder::picture() {
 
     extension_and_user_data();
 
-    if (picture_coding_type == I or picture_coding_type == P) {
+    if (picture_coding_type == I or picture_coding_type == P)
         std::swap(_backward_frame, _forward_frame);
-        _output(_forward_frame);
-    }
 
     if (_current_frame == nullptr)
         _current_frame = new Frame(vertical_size, horizontal_size);
@@ -171,6 +245,9 @@ bool Decoder::picture() {
 
     if (picture_coding_type == I or picture_coding_type == P)
         std::swap(_current_frame, _backward_frame);
+
+    if (picture_coding_type == I or picture_coding_type == P)
+        _output(_forward_frame);
     else if (picture_coding_type == B)
         _output(_current_frame);
 
@@ -664,6 +741,9 @@ int Decoder::debug(const char *format, ...) {
 
 void Decoder::_output(Frame *frame) {
     if (frame == nullptr) return ;
+
+    frame->calc_bmp();
+    frames.push_back(frame->bmp);
 
     if (output_to_file) {
         char file_name[120];

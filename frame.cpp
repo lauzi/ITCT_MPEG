@@ -6,10 +6,10 @@
 
 typedef short int16;
 
-void Frame::_set_macroblock_y(bv_t vals[8][8], int my, int mx, int i) {
+void Frame::_set_macroblock_y(bv_t vals[8][8], int my, int mx, int ii) {
     int base_y = my << 4, base_x = mx << 4;
-    if (i & 1) base_x += 8;
-    if (i & 2) base_y += 8;
+    if (ii & 1) base_x += 8;
+    if (ii & 2) base_y += 8;
 
     for (int i = 0; i < 8; ++i) {
         int idx = (base_y + i) * (_lw * 2) + base_x;

@@ -42,8 +42,12 @@ class Decoder {
     void macroblock();
     void block(int i);
 
+    std::vector< std::vector<uint8> > frames;
+
   private:
     int _frame_count;
+
+    void _show_ui();
 
     ReadOnlyFile _file;
 
